@@ -5,6 +5,7 @@
       "name": "Debug",
       "type": "gdb",
       "request": "attach",
+      "preLaunchTask": "Build Debug",
       "target": "localhost:3333",
       "remote": true,
       "cwd": "${workspaceRoot}",
