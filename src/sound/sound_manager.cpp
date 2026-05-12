@@ -11,7 +11,8 @@ using namespace psyqo::fixed_point_literals;
 
 bool SoundManager::m_isInitialized = false;
 eastl::fixed_vector<VagEntry, MAX_VAG_FILE_COUNT> SoundManager::m_vagFiles;
-//uint32_t SoundManager::m_spuAllocPtr = psyqo::SPU::BASE_ALLOC_ADDR;
+// First 0x1010 bytes of SPU RAM are reserved for the capture buffer.
+uint32_t SoundManager::m_spuAllocPtr = 0x1010;
 
 void SoundManager::Init(void) {
     psyqo::SPU::initialize();
@@ -173,6 +174,6 @@ psyqo::SPU::ChannelPlaybackConfig SoundManager::CreatePlaybackConfig(const VagEn
 
 void SoundManager::Dump(void) {
     psyqo::SPU::silenceChannels(0xffffffff);
-    //m_spuAllocPtr = psyqo::SPU::BASE_ALLOC_ADDR;
+    m_spuAllocPtr = 0x1010;
     m_vagFiles.clear();
 }
