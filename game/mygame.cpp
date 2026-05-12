@@ -25,7 +25,7 @@ psyqo::Coroutine<> MadnightGame::InitialLoad(void)
     co_await g_madnightEngine.HardLoadingScreen(eastl::move(queue), &gameplayScene);
 
     auto* obj = GameObjectManager::CreateGameObject(
-        "SUZANNE", {.x = 0.1_fp, .y = 0, .z = 0.3_fp}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
+        "SUZANNE", {.x = 0, .y = 0, .z = 1.5_fp}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
     if (obj) {
         obj->SetQuadType(GameObjectQuadType::GouraudQuad);
         obj->SetMesh("MODELS/SUZANNE.MB");
