@@ -83,17 +83,21 @@ def export_obj_skel(context, filepath, apply_modifiers=True, export_selected=Tru
 
             f.write(f"o {obj.name}\n")
 
-            # Vertices
+            # Vertices. PSX gouraud uses 0-255 per channel directly when no
+            # texture is bound, and the texture-modulation case uses 128 as the
+            # 1x identity. Write the full 0-255 range so painted colors keep
+            # their intensity; 128 is fine as the texture-modulation default
+            # when no color attribute exists.
+            color_attr = None
+            if mesh_eval.color_attributes and mesh_eval.color_attributes.active_color:
+                color_attr = mesh_eval.color_attributes.active_color
             for v in mesh_eval.vertices:
-                if mesh_eval.color_attributes:
-                    if mesh_eval.color_attributes.active_color:
-                        color = mesh_eval.color_attributes.active_color.data[v.index].color
-                        r = int(color[0] * 128) if color[0] >= 0.1 else 128
-                        g = int(color[1] * 128) if color[1] >= 0.1 else 128
-                        b = int(color[2] * 128) if color[2] >= 0.1 else 128
-                        f.write(f"v {v.co.x:.6f} {v.co.y:.6f} {v.co.z:.6f} {r} {g} {b}\n")
-                    else:
-                        f.write(f"v {v.co.x:.6f} {v.co.y:.6f} {v.co.z:.6f}\n")
+                if color_attr is not None:
+                    color = color_attr.data[v.index].color
+                    r = max(0, min(255, int(color[0] * 255)))
+                    g = max(0, min(255, int(color[1] * 255)))
+                    b = max(0, min(255, int(color[2] * 255)))
+                    f.write(f"v {v.co.x:.6f} {v.co.y:.6f} {v.co.z:.6f} {r} {g} {b}\n")
                 else:
                     f.write(f"v {v.co.x:.6f} {v.co.y:.6f} {v.co.z:.6f}\n")
 
