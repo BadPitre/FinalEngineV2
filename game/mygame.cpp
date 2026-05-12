@@ -19,9 +19,7 @@ psyqo::Coroutine<> MadnightGame::InitialLoad(void)
     printf("welcome to your game code!\n");
 
     eastl::vector<LoadQueue> queue = {
-        {.name = "TEXTURES/STREET.TIM", .type = LoadFileType::TEXTURE,
-         .x = 320, .y = 0, .clutX = 0, .clutY = 240},
-        {.name = "MODELS/SUZANNE.MB",  .type = LoadFileType::OBJECT},
+        {.name = "MODELS/SUZANNE.MB", .type = LoadFileType::OBJECT},
     };
 
     co_await g_madnightEngine.HardLoadingScreen(eastl::move(queue), &gameplayScene);
@@ -29,9 +27,8 @@ psyqo::Coroutine<> MadnightGame::InitialLoad(void)
     auto* obj = GameObjectManager::CreateGameObject(
         "SUZANNE", {.x = 0, .y = 0, .z = 1.5_fp}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
     if (obj) {
-        obj->SetQuadType(GameObjectQuadType::GouraudTextureQuad);
+        obj->SetQuadType(GameObjectQuadType::GouraudQuad);
         obj->SetMesh("MODELS/SUZANNE.MB");
-        obj->SetTexture("TEXTURES/STREET.TIM");
     }
 }
 

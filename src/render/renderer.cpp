@@ -304,11 +304,7 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     }
 
     auto renderVerts = mesh->hasSkeleton ? mesh->verticesOnBonePos : mesh->vertices;
-    int dbg_tried = 0, dbg_nclip = 0, dbg_otz = 0, dbg_clip = 0, dbg_emit = 0;
-    int32_t dbg_first_otz = -1;
-    psyqo::Vertex dbg_first_v0 = {0};
     for (int32_t i = 0; i < mesh->facesCount; i++) {
-      dbg_tried++;
       auto isQuad = mesh->vertexIndices[i].i2 != -1;
 
       // load the first 3 verts into the GTE. remember it can only handle 3 at a time
@@ -323,10 +319,8 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       psyqo::GTE::Kernels::nclip();
 
       // read the result of this and skip rendering if its backfaced
-      if (psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0>() == 0) {
-        dbg_nclip++;
+      if (psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0>() == 0)
         continue;
-      }
 
       // store these verts so we can read the last one in
       psyqo::GTE::read<psyqo::GTE::Register::SXY0>(&projected[0].packed);
@@ -345,12 +339,9 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       }
     
       zIndex = psyqo::GTE::readRaw<psyqo::GTE::Register::OTZ>();
-      if (dbg_first_otz < 0) dbg_first_otz = zIndex;
       // make sure we dont go out of bounds
-      if (zIndex == 0 || (m_isSimpleFogEnabled && zIndex >= FULL_FOG_DISTANCE) || zIndex >= ORDERING_TABLE_SIZE) {
-        dbg_otz++;
+      if (zIndex == 0 || (m_isSimpleFogEnabled && zIndex >= FULL_FOG_DISTANCE) || zIndex >= ORDERING_TABLE_SIZE)
         continue;
-      }
 
       // get the three remaining verts from the GTE
       if (isQuad) {
@@ -362,13 +353,9 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
         psyqo::GTE::read<psyqo::GTE::Register::SXY2>(&projected[2].packed);        
       }
 
-      if (dbg_emit == 0) dbg_first_v0 = projected[0];
       // if its out of the screen space we can clip too
-      if ((isQuad && quad_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2], &projected[3])) || !isQuad && tri_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2])) {
-        dbg_clip++;
+      if ((isQuad && quad_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2], &projected[3])) || !isQuad && tri_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2]))
         continue;
-      }
-      dbg_emit++;
 
       auto applyUV = [&](auto& uvDest, int index) {
         auto uv = mesh->uvs[index];
@@ -377,14 +364,6 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       };
 
       if (isQuad) {
-        // now take a quad fragment from our array and:
-        // set its vertices
-        auto &quad = allocator.allocateFragment<psyqo::Prim::GouraudTexturedQuad>();
-        quad.primitive.pointA = projected[0];
-        quad.primitive.pointB = projected[1];
-        quad.primitive.pointC = projected[2];
-        quad.primitive.pointD = projected[3];
-
         psyqo::Color colA = {mesh->vertexColours[mesh->vertexIndices[i].i1].r, mesh->vertexColours[mesh->vertexIndices[i].i1].g, mesh->vertexColours[mesh->vertexIndices[i].i1].b},
           colB = {mesh->vertexColours[mesh->vertexIndices[i].i2].r, mesh->vertexColours[mesh->vertexIndices[i].i2].g, mesh->vertexColours[mesh->vertexIndices[i].i2].b},
           colC = {mesh->vertexColours[mesh->vertexIndices[i].i3].r, mesh->vertexColours[mesh->vertexIndices[i].i3].g, mesh->vertexColours[mesh->vertexIndices[i].i3].b},
@@ -397,42 +376,42 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
           ApplyFogToColour(&colD, GetFogFactor(psyqo::GTE::readRaw<psyqo::GTE::Register::SZ3>()));
         }
 
-        // set its colour, and make it opaque
-        quad.primitive.setColorA(colA);
-        quad.primitive.setColorB(colB);
-        quad.primitive.setColorC(colC);
-        quad.primitive.setColorD(colD);
-        quad.primitive.setOpaque();
-
-        // do we have a texture for this?
         if (texture) {
-          // set its tpage
+          auto &quad = allocator.allocateFragment<psyqo::Prim::GouraudTexturedQuad>();
+          quad.primitive.pointA = projected[0];
+          quad.primitive.pointB = projected[1];
+          quad.primitive.pointC = projected[2];
+          quad.primitive.pointD = projected[3];
+          quad.primitive.setColorA(colA);
+          quad.primitive.setColorB(colB);
+          quad.primitive.setColorC(colC);
+          quad.primitive.setColorD(colD);
+          quad.primitive.setOpaque();
           quad.primitive.tpage = tpage;
-
-          // set its clut if it has one
           if (texture->hasClut)
             quad.primitive.clutIndex = {texture->clutX, texture->clutY};
-
-          // set its uv coords
           applyUV(quad.primitive.uvA, mesh->uvIndices[i].i1);
           applyUV(quad.primitive.uvB, mesh->uvIndices[i].i2);
           applyUV(quad.primitive.uvC, mesh->uvIndices[i].i3);
           applyUV(quad.primitive.uvD, mesh->uvIndices[i].i4);
-        }
-
-        // finally we can insert the quad fragment into the ordering table at the calculated z-index
-        if (zIndex <= SUBDIVISION_DISTANCE)
-          SubdivideTexturedQuad(&quad, zIndex, &ot, 2);
-        else
+          if (zIndex <= SUBDIVISION_DISTANCE)
+            SubdivideTexturedQuad(&quad, zIndex, &ot, 2);
+          else
+            ot.insert(quad, zIndex);
+        } else {
+          auto &quad = allocator.allocateFragment<psyqo::Prim::GouraudQuad>();
+          quad.primitive.pointA = projected[0];
+          quad.primitive.pointB = projected[1];
+          quad.primitive.pointC = projected[2];
+          quad.primitive.pointD = projected[3];
+          quad.primitive.setColorA(colA);
+          quad.primitive.setColorB(colB);
+          quad.primitive.setColorC(colC);
+          quad.primitive.setColorD(colD);
+          quad.primitive.setOpaque();
           ot.insert(quad, zIndex);
+        }
       } else {
-        // now take a tri fragment from our array and:
-        // set its vertices
-        auto &tri = allocator.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
-        tri.primitive.pointA = projected[0];
-        tri.primitive.pointB = projected[1];
-        tri.primitive.pointC = projected[2];
-
         psyqo::Color colA = {mesh->vertexColours[mesh->vertexIndices[i].i1].r, mesh->vertexColours[mesh->vertexIndices[i].i1].g, mesh->vertexColours[mesh->vertexIndices[i].i1].b},
           colB = {mesh->vertexColours[mesh->vertexIndices[i].i3].r, mesh->vertexColours[mesh->vertexIndices[i].i3].g, mesh->vertexColours[mesh->vertexIndices[i].i3].b},
           colC = {mesh->vertexColours[mesh->vertexIndices[i].i4].r, mesh->vertexColours[mesh->vertexIndices[i].i4].g, mesh->vertexColours[mesh->vertexIndices[i].i4].b};
@@ -443,32 +422,36 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
           ApplyFogToColour(&colC, GetFogFactor(psyqo::GTE::readRaw<psyqo::GTE::Register::SZ2>()));
         }
 
-        // set its colour, and make it opaque
-        tri.primitive.setColorA(colA);
-        tri.primitive.setColorB(colB);
-        tri.primitive.setColorC(colC);
-        tri.primitive.setOpaque();
-
-        // do we have a texture for this?
         if (texture) {
-          // set its tpage
+          auto &tri = allocator.allocateFragment<psyqo::Prim::GouraudTexturedTriangle>();
+          tri.primitive.pointA = projected[0];
+          tri.primitive.pointB = projected[1];
+          tri.primitive.pointC = projected[2];
+          tri.primitive.setColorA(colA);
+          tri.primitive.setColorB(colB);
+          tri.primitive.setColorC(colC);
+          tri.primitive.setOpaque();
           tri.primitive.tpage = tpage;
-
-          // set its clut if it has one
           if (texture->hasClut)
             tri.primitive.clutIndex = {texture->clutX, texture->clutY};
-
-          // set its uv coords
           applyUV(tri.primitive.uvA, mesh->uvIndices[i].i3);
           applyUV(tri.primitive.uvB, mesh->uvIndices[i].i1);
           applyUV(tri.primitive.uvC, mesh->uvIndices[i].i4);
-        }
-
-        // finally we can insert the quad fragment into the ordering table at the calculated z-index
-        if (zIndex <= SUBDIVISION_DISTANCE)
-          SubdivideTexturedTri(&tri, zIndex, &ot, 2);
-        else
+          if (zIndex <= SUBDIVISION_DISTANCE)
+            SubdivideTexturedTri(&tri, zIndex, &ot, 2);
+          else
+            ot.insert(tri, zIndex);
+        } else {
+          auto &tri = allocator.allocateFragment<psyqo::Prim::GouraudTriangle>();
+          tri.primitive.pointA = projected[0];
+          tri.primitive.pointB = projected[1];
+          tri.primitive.pointC = projected[2];
+          tri.primitive.setColorA(colA);
+          tri.primitive.setColorB(colB);
+          tri.primitive.setColorC(colC);
+          tri.primitive.setOpaque();
           ot.insert(tri, zIndex);
+        }
       }
     };
 
@@ -496,12 +479,6 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     }
 #endif
 
-    static int dbg_frame = 0;
-    if ((dbg_frame++ % 60) == 0) {
-      printf("RENDER %s: tried=%d nclip=%d otz=%d clip=%d emit=%d firstOTZ=%d firstV0=(%d,%d)\n",
-        gameObject->name().c_str(), dbg_tried, dbg_nclip, dbg_otz, dbg_clip, dbg_emit,
-        dbg_first_otz, dbg_first_v0.x, dbg_first_v0.y);
-    }
   }
 
   PerfMonitor::SetRenderedGameObjects(renderedObjects, gameObjects.size());
