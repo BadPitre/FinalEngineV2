@@ -28,6 +28,7 @@ void GameplayScene::start(StartReason reason) {
   m_fpsText = m_debugHUD.AddTextHUDElement(TextHUDElement("FPS", {.pos = {5, 15}, .size = {100, 100}}));
 
   m_camera = new Camera();
+  Renderer::Instance().SetActiveCamera(m_camera);
 }
 
 void GameplayScene::teardown(TearDownReason reason) { g_madnightEngine.m_input.setOnEvent(nullptr); }

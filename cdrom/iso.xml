@@ -53,12 +53,13 @@
 		-->
 		<directory_tree>
 			<file name="SYSTEM.CNF"		type="data" source="system.cnf" />
-			<file name="MADNIGHT.EXE"	type="data" source="../build/madnight-engine-game.ps-exe" />
+			<file name="MADNIGHT.EXE"	type="data" source="../FinalEngineV2.ps-exe" />
 
 			<!-- models in binary format -->
 			<dir name="MODELS">
 				<file name="CUBE.MB" type="data" source="assets/cube.meshbin"/>
 				<file name="STREET.MB" type="data" source="assets/residential_street.meshbin"/>
+				<file name="SUZANNE.MB" type="data" source="assets/models/suzanne.mb"/>
 			</dir>
 
 			<!-- textures -->

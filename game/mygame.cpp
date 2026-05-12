@@ -1,18 +1,34 @@
 #include "mygame.hh"
-#include "cube_scene.hh"
 #include "madnight.hh"
-#include "game.hh"
+#include "scenes/gameplay.hh"
+#include "core/object/gameobject_manager.hh"
+#include "helpers/load_queue.hh"
+
+#include <EASTL/vector.h>
 #include "psyqo/xprintf.h"
+
+using namespace psyqo::fixed_point_literals;
 
 MadnightGame g_myGame;
 MadnightEngineGame &g_madnightEngineGame = g_myGame;
-static CubeScene cubeScene;
+static GameplayScene gameplayScene;
 
 psyqo::Coroutine<> MadnightGame::InitialLoad(void)
 {
     printf("welcome to your game code!\n");
-    g_madnightEngine.SwitchScene(&cubeScene);
-    co_return;
+
+    eastl::vector<LoadQueue> queue = {
+        {.name = "MODELS/SUZANNE.MB", .type = LoadFileType::OBJECT},
+    };
+
+    co_await g_madnightEngine.HardLoadingScreen(eastl::move(queue), &gameplayScene);
+
+    auto* obj = GameObjectManager::CreateGameObject(
+        "SUZANNE", {0, 0, 0}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
+    if (obj) {
+        obj->SetQuadType(GameObjectQuadType::GouraudQuad);
+        obj->SetMesh("MODELS/SUZANNE.MB");
+    }
 }
 
 int main() { return g_madnightEngine.run(); }
