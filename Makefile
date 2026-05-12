@@ -1,7 +1,8 @@
 TARGET = FinalEngineV2
 TYPE = ps-exe
 
-SRCS = \
-main.cpp
+SRCS := $(shell find src game -name '*.cpp')
+
+CPPFLAGS += -Isrc
 
 include third_party/nugget/psyqo/psyqo.mk
