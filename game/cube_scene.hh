@@ -14,7 +14,8 @@ class CubeScene final : public psyqo::Scene {
     static constexpr unsigned ORDERING_TABLE_SIZE = 4096;
     static constexpr unsigned NUM_CUBE_FACES = 6;
     static constexpr unsigned NUM_CUBES = 5;
-    static constexpr unsigned NUM_ROOM_QUADS = 1; // floor only
+    static constexpr unsigned FLOOR_GRID = 6;
+    static constexpr unsigned NUM_ROOM_QUADS = FLOOR_GRID * FLOOR_GRID;
     static constexpr unsigned MAX_QUADS = NUM_CUBES * NUM_CUBE_FACES + NUM_ROOM_QUADS;
 
   private:

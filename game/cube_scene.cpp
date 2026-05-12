@@ -16,11 +16,6 @@ struct Face {
     psyqo::Color color;
 };
 
-struct Quad3D {
-    psyqo::Vec3 v[4];
-    psyqo::Color color;
-};
-
 constexpr psyqo::Vec3 c_cubeVertices[8] = {
     {.x = -0.05, .y = -0.05, .z = -0.05}, {.x = 0.05, .y = -0.05, .z = -0.05},
     {.x = -0.05, .y = 0.05,  .z = -0.05}, {.x = 0.05, .y = 0.05,  .z = -0.05},
@@ -52,14 +47,7 @@ constexpr psyqo::FixedPoint<> c_roomMinZ = -0.7_fp;
 constexpr psyqo::FixedPoint<> c_roomMaxZ =  0.7_fp;
 constexpr psyqo::FixedPoint<> c_roomFloorY =  0.4_fp;
 
-constexpr Quad3D c_roomQuads[CubeScene::NUM_ROOM_QUADS] = {
-    // Floor (camera looks down at it)
-    {{{.x = c_roomMinX, .y = c_roomFloorY, .z = c_roomMinZ},
-      {.x = c_roomMaxX, .y = c_roomFloorY, .z = c_roomMinZ},
-      {.x = c_roomMinX, .y = c_roomFloorY, .z = c_roomMaxZ},
-      {.x = c_roomMaxX, .y = c_roomFloorY, .z = c_roomMaxZ}},
-     {.r = 60, .g = 60, .b = 60}},
-};
+constexpr psyqo::Color c_floorColor = {.r = 60, .g = 60, .b = 60};
 
 constexpr psyqo::FixedPoint<> c_moveSpeed = 0.01_fp;
 
@@ -177,7 +165,10 @@ void CubeScene::frame() {
         return true;
     };
 
-    // ---- Room (world-space geometry, no model rotation) ----
+    // ---- Room floor, subdivided into a grid so each tile's averaged
+    // OT depth stays close to its actual screen Z. A single huge quad
+    // would average near + far corners together and lose to small
+    // objects sitting on it at grazing angles.
     {
         psyqo::Vec3 negCamPos = {.x = -m_cameraPos.x, .y = -m_cameraPos.y, .z = -m_cameraPos.z};
         psyqo::Vec3 viewTranslation;
@@ -185,8 +176,20 @@ void CubeScene::frame() {
         psyqo::GTE::writeUnsafe<psyqo::GTE::PseudoRegister::Rotation>(viewRot);
         psyqo::GTE::writeUnsafe<psyqo::GTE::PseudoRegister::Translation>(viewTranslation);
 
-        for (const auto &q : c_roomQuads) {
-            emitQuad(q.v[0], q.v[1], q.v[2], q.v[3], q.color, /*cullBackface=*/false);
+        psyqo::FixedPoint<> stepX = (c_roomMaxX - c_roomMinX) / int32_t(FLOOR_GRID);
+        psyqo::FixedPoint<> stepZ = (c_roomMaxZ - c_roomMinZ) / int32_t(FLOOR_GRID);
+        for (unsigned iz = 0; iz < FLOOR_GRID; ++iz) {
+            psyqo::FixedPoint<> z0 = c_roomMinZ + stepZ * int32_t(iz);
+            psyqo::FixedPoint<> z1 = z0 + stepZ;
+            for (unsigned ix = 0; ix < FLOOR_GRID; ++ix) {
+                psyqo::FixedPoint<> x0 = c_roomMinX + stepX * int32_t(ix);
+                psyqo::FixedPoint<> x1 = x0 + stepX;
+                emitQuad({.x = x0, .y = c_roomFloorY, .z = z0},
+                         {.x = x1, .y = c_roomFloorY, .z = z0},
+                         {.x = x0, .y = c_roomFloorY, .z = z1},
+                         {.x = x1, .y = c_roomFloorY, .z = z1}, c_floorColor,
+                         /*cullBackface=*/false);
+            }
         }
     }
 
