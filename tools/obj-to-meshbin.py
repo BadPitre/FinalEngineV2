@@ -72,6 +72,8 @@ def parse_obj_file_with_collision_data(path,texture_size):
     bone_id_for_vert_ix = []
     min_coords = []
     max_coords = []
+    bsphere_centre = []
+    bsphere_radius = 0
 
     with open(path, "r") as f:
         for line in f:
@@ -199,6 +201,26 @@ def parse_obj_file_with_collision_data(path,texture_size):
             elif line.startswith("vw ") and has_skeleton:
                 bone_id = line.strip().split()[2]
                 bone_id_for_vert_ix.append(int(bone_id))
+
+    # Fallbacks if the OBJ did not include an aabb/bsphere line: compute them
+    # from the verts. Verts are already in engine units (multiplied by
+    # ONE_ENGINE_METRE), so no extra scaling is needed here.
+    if verts and (not min_coords or not max_coords):
+        xs = [v[0] for v in verts]
+        ys = [v[1] for v in verts]
+        zs = [v[2] for v in verts]
+        min_coords = [min(xs), min(ys), min(zs)]
+        max_coords = [max(xs), max(ys), max(zs)]
+
+    if verts and not bsphere_centre:
+        cx = sum(v[0] for v in verts) / len(verts)
+        cy = sum(v[1] for v in verts) / len(verts)
+        cz = sum(v[2] for v in verts) / len(verts)
+        bsphere_centre = [int(cx), int(cy), int(cz)]
+        bsphere_radius = int(max(
+            ((v[0] - cx) ** 2 + (v[1] - cy) ** 2 + (v[2] - cz) ** 2) ** 0.5
+            for v in verts
+        ))
 
     return verts, norms, uvs, face_indices, uv_indices, normal_indices, num_faces, collision_verts, min_coords, max_coords, has_skeleton, skeleton_bone_count, skeleton_bones, bone_id_for_vert_ix, bsphere_centre, bsphere_radius
 
