@@ -8,6 +8,7 @@
 #include "psyqo/xprintf.h"
 
 using namespace psyqo::fixed_point_literals;
+using namespace psyqo::trig_literals;
 
 MadnightGame g_myGame;
 MadnightEngineGame &g_madnightEngineGame = g_myGame;
@@ -18,16 +19,27 @@ psyqo::Coroutine<> MadnightGame::InitialLoad(void)
     printf("welcome to your game code!\n");
 
     eastl::vector<LoadQueue> queue = {
-        {.name = "MODELS/SUZANNE.MB", .type = LoadFileType::OBJECT},
+        {.name = "TEXTURES/STREET.TIM", .type = LoadFileType::TEXTURE,
+         .x = 320, .y = 0, .clutX = 0, .clutY = 240},
+        {.name = "MODELS/STREET.MB",   .type = LoadFileType::OBJECT},
+        {.name = "MODELS/CUBE.MB",     .type = LoadFileType::OBJECT},
     };
 
     co_await g_madnightEngine.HardLoadingScreen(eastl::move(queue), &gameplayScene);
 
-    auto* obj = GameObjectManager::CreateGameObject(
-        "SUZANNE", {.x = 0, .y = 0, .z = 0.3_fp}, {0, 1.0_pi, 0}, GameObjectTag::ENVIRONMENT);
-    if (obj) {
-        obj->SetQuadType(GameObjectQuadType::GouraudQuad);
-        obj->SetMesh("MODELS/SUZANNE.MB");
+    auto* street = GameObjectManager::CreateGameObject(
+        "STREET", {0, 0, 0}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
+    if (street) {
+        street->SetQuadType(GameObjectQuadType::GouraudTextureQuad);
+        street->SetMesh("MODELS/STREET.MB");
+        street->SetTexture("TEXTURES/STREET.TIM");
+    }
+
+    auto* cube = GameObjectManager::CreateGameObject(
+        "CUBE", {.x = 0, .y = 0, .z = 0.5_fp}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
+    if (cube) {
+        cube->SetQuadType(GameObjectQuadType::GouraudQuad);
+        cube->SetMesh("MODELS/CUBE.MB");
     }
 }
 
