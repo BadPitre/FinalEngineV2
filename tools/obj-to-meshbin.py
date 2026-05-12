@@ -202,20 +202,20 @@ def parse_obj_file_with_collision_data(path,texture_size):
                 bone_id = line.strip().split()[2]
                 bone_id_for_vert_ix.append(int(bone_id))
 
-    # Fallbacks if the OBJ did not include an aabb/bsphere line: compute them
-    # from the verts. Verts are already in engine units (multiplied by
-    # ONE_ENGINE_METRE), so no extra scaling is needed here.
-    if verts and (not min_coords or not max_coords):
+    # Always recompute aabb/bsphere from the verts that will actually be
+    # stored. Trusting the OBJ-declared lines is fragile because the Blender
+    # exporter sometimes scales them differently than the verts (e.g. when
+    # `global_scale` is set), which causes int16 overflow downstream.
+    if verts:
         xs = [v[0] for v in verts]
         ys = [v[1] for v in verts]
         zs = [v[2] for v in verts]
         min_coords = [min(xs), min(ys), min(zs)]
         max_coords = [max(xs), max(ys), max(zs)]
 
-    if verts and not bsphere_centre:
-        cx = sum(v[0] for v in verts) / len(verts)
-        cy = sum(v[1] for v in verts) / len(verts)
-        cz = sum(v[2] for v in verts) / len(verts)
+        cx = sum(xs) / len(verts)
+        cy = sum(ys) / len(verts)
+        cz = sum(zs) / len(verts)
         bsphere_centre = [int(cx), int(cy), int(cz)]
         bsphere_radius = int(max(
             ((v[0] - cx) ** 2 + (v[1] - cy) ** 2 + (v[2] - cz) ** 2) ** 0.5
