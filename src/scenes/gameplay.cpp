@@ -16,6 +16,7 @@ using namespace psyqo::trig_literals;
 namespace {
 constexpr psyqo::FixedPoint<> c_moveSpeed = 0.05_fp;
 constexpr psyqo::Angle c_yawSpeed = 0.02_pi;
+constexpr psyqo::Angle c_spinSpeed = 0.01_pi;
 }
 
 void GameplayScene::start(StartReason reason) {
@@ -69,6 +70,13 @@ void GameplayScene::frame() {
   if (pad.isButtonPressed(P, Btn::R1))    pos.y += c_moveSpeed;
 
   m_camera->SetPosition(pos);
+
+  // spin every ENVIRONMENT object in place around its Y axis
+  for (auto *obj : GameObjectManager::GetGameObjectsWithTag(GameObjectTag::ENVIRONMENT)) {
+    auto rot = obj->rotation();
+    rot.y += c_spinSpeed;
+    obj->SetRotation(rot);
+  }
 
   // process camera inputs
   m_camera->Process(deltaTime);

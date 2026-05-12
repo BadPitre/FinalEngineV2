@@ -24,11 +24,21 @@ psyqo::Coroutine<> MadnightGame::InitialLoad(void)
 
     co_await g_madnightEngine.HardLoadingScreen(eastl::move(queue), &gameplayScene);
 
-    auto* obj = GameObjectManager::CreateGameObject(
-        "SUZANNE", {.x = 0, .y = 0, .z = 1.5_fp}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
-    if (obj) {
-        obj->SetQuadType(GameObjectQuadType::GouraudQuad);
-        obj->SetMesh("MODELS/SUZANNE.MB");
+    struct SpawnSpot { const char *name; psyqo::Vec3 pos; };
+    const SpawnSpot spawns[] = {
+        {"SUZANNE_NE", {.x =  0.8_fp, .y = 0, .z =  2.3_fp}},
+        {"SUZANNE_NW", {.x = -0.8_fp, .y = 0, .z =  2.3_fp}},
+        {"SUZANNE_SE", {.x =  0.8_fp, .y = 0, .z =  0.7_fp}},
+        {"SUZANNE_SW", {.x = -0.8_fp, .y = 0, .z =  0.7_fp}},
+    };
+
+    for (const auto &spot : spawns) {
+        auto *obj = GameObjectManager::CreateGameObject(
+            spot.name, spot.pos, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
+        if (obj) {
+            obj->SetQuadType(GameObjectQuadType::GouraudQuad);
+            obj->SetMesh("MODELS/SUZANNE.MB");
+        }
     }
 }
 
