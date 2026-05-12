@@ -116,9 +116,12 @@ void Renderer::StartScene(void) {
   // write the projection plane distance
   psyqo::GTE::write<psyqo::GTE::Register::H, psyqo::GTE::Unsafe>(PROJECTION_DISTANCE);
 
-  // set the scaling for z averaging
-  psyqo::GTE::write<psyqo::GTE::Register::ZSF3, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 3);
-  psyqo::GTE::write<psyqo::GTE::Register::ZSF4, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 4);
+  // set the scaling for z averaging. Smaller ZSF stretches the depth
+  // range that fits inside the ordering table; the standard /3 and /4
+  // heuristic was overflowing OTZ past ORDERING_TABLE_SIZE for meshes
+  // sitting more than a unit away from the camera.
+  psyqo::GTE::write<psyqo::GTE::Register::ZSF3, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 12);
+  psyqo::GTE::write<psyqo::GTE::Register::ZSF4, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 16);
 }
 
 /* this must be called at the start of each frame */
