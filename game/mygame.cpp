@@ -20,6 +20,7 @@ psyqo::Coroutine<> MadnightGame::InitialLoad(void)
 
     eastl::vector<LoadQueue> queue = {
         {.name = "MODELS/SUZANNE.MB", .type = LoadFileType::OBJECT},
+        {.name = "MODELS/ROOM.MB",    .type = LoadFileType::OBJECT},
     };
 
     co_await g_madnightEngine.HardLoadingScreen(eastl::move(queue), &gameplayScene);
@@ -39,6 +40,13 @@ psyqo::Coroutine<> MadnightGame::InitialLoad(void)
             obj->SetQuadType(GameObjectQuadType::GouraudQuad);
             obj->SetMesh("MODELS/SUZANNE.MB");
         }
+    }
+
+    auto *room = GameObjectManager::CreateGameObject(
+        "ROOM", {.x = 0, .y = 0, .z = 1.5_fp}, {0, 0, 0}, GameObjectTag::ENVIRONMENT);
+    if (room) {
+        room->SetQuadType(GameObjectQuadType::GouraudQuad);
+        room->SetMesh("MODELS/ROOM.MB");
     }
 }
 

@@ -71,8 +71,11 @@ void GameplayScene::frame() {
 
   m_camera->SetPosition(pos);
 
-  // spin every ENVIRONMENT object in place around its Y axis
+  // spin every Suzanne in place around its Y axis (other ENVIRONMENT
+  // objects, like the room geometry, stay still)
   for (auto *obj : GameObjectManager::GetGameObjectsWithTag(GameObjectTag::ENVIRONMENT)) {
+    if (__builtin_strncmp(obj->name().c_str(), "SUZANNE", 7) != 0)
+      continue;
     auto rot = obj->rotation();
     rot.y += c_spinSpeed;
     obj->SetRotation(rot);
