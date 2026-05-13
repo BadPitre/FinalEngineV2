@@ -117,11 +117,13 @@ void Renderer::StartScene(void) {
   psyqo::GTE::write<psyqo::GTE::Register::H, psyqo::GTE::Unsafe>(PROJECTION_DISTANCE);
 
   // set the scaling for z averaging. Smaller ZSF stretches the depth
-  // range that fits inside the ordering table; the standard /3 and /4
-  // heuristic was overflowing OTZ past ORDERING_TABLE_SIZE for meshes
-  // sitting more than a unit away from the camera.
-  psyqo::GTE::write<psyqo::GTE::Register::ZSF3, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 12);
-  psyqo::GTE::write<psyqo::GTE::Register::ZSF4, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 16);
+  // range that fits inside the ordering table; the previous /12 and
+  // /16 still overflowed for 10-unit-wide rooms whose far wall sits
+  // at world z~6.5 (OTZ ended up at 6500 vs ORDERING_TABLE_SIZE=4000).
+  // /40 and /50 cover roughly z=0 to z=20 view-space, at the cost of
+  // coarser depth-sort resolution.
+  psyqo::GTE::write<psyqo::GTE::Register::ZSF3, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 40);
+  psyqo::GTE::write<psyqo::GTE::Register::ZSF4, psyqo::GTE::Unsafe>(ORDERING_TABLE_SIZE / 50);
 }
 
 /* this must be called at the start of each frame */
