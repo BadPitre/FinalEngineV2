@@ -50,7 +50,7 @@ def reorder_face_clockwise_z(v_idx, uv_idx, n_idx, verts):
     return v_idx, uv_idx, n_idx
 
 
-def parse_obj_file_with_collision_data(path,texture_size):
+def parse_obj_file_with_collision_data(path, texture_size, extra_scale=1.0):
     verts = []
     norms = []
     uvs = []
@@ -86,6 +86,9 @@ def parse_obj_file_with_collision_data(path,texture_size):
             if line.startswith("v "):
                 parts = line.strip().split()
                 x, y, z = map(float, parts[1:4])
+                x *= extra_scale
+                y *= extra_scale
+                z *= extra_scale
                 if len(parts) >= 7:
                     r, g, b = map(lambda v: int(v), parts[4:7])
                 else:
@@ -285,15 +288,19 @@ def write_meshbin(filename, verts, norms, uvs, indices, uv_indices, normal_indic
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4:
-        print(f"Usage: {os.path.basename(sys.argv[0])} input.obj output.meshbin texture_size")
+    if len(sys.argv) not in (4, 5):
+        print(f"Usage: {os.path.basename(sys.argv[0])} input.obj output.meshbin texture_size [scale]")
+        print("  scale: optional float, multiplies vertex coords before the")
+        print("  ONE_ENGINE_METRE quantization. Use 32 for a 1:1 Blender-to-")
+        print("  engine-unit mapping (which means 1 m in Blender = 1 fp12 unit).")
         sys.exit(1)
- 
+
     input_obj = sys.argv[1]
     output_bin = sys.argv[2]
     texture_size = sys.argv[3]
+    extra_scale = float(sys.argv[4]) if len(sys.argv) == 5 else 1.0
 
-    verts, norms, uvs, indices, uv_idx, norm_idx, num_faces, collision_verts, min_coords, max_coords, has_skeleton, skeleton_bone_count, skeleton_bones, bone_id_for_vert_ix, bsphere_centre, bsphere_radius = parse_obj_file_with_collision_data(input_obj, texture_size)
+    verts, norms, uvs, indices, uv_idx, norm_idx, num_faces, collision_verts, min_coords, max_coords, has_skeleton, skeleton_bone_count, skeleton_bones, bone_id_for_vert_ix, bsphere_centre, bsphere_radius = parse_obj_file_with_collision_data(input_obj, texture_size, extra_scale)
     write_meshbin(output_bin, verts, norms, uvs, indices, uv_idx, norm_idx, num_faces, collision_verts, min_coords, max_coords, has_skeleton, skeleton_bone_count, skeleton_bones, bone_id_for_vert_ix, bsphere_centre, bsphere_radius)
     print(f"Successfully wrote mesh binary to {output_bin}\n")
     print(f"verts: {len(verts)}. indices count: {len(indices)}. faces count: {num_faces}. uv count: {len(uvs)}. bone count: {skeleton_bone_count}")
