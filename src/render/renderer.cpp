@@ -240,20 +240,37 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
 
   // now for each object...
   int renderedObjects = 0;
+  static int dbg_obj_remaining = 30;
   for (const auto &gameObject : gameObjects) {
+    bool dbg_log_this = (dbg_obj_remaining > 0);
+
     // we dont need to get mesh data for every single vert since it wont change, so lets only do that once
     const auto mesh = gameObject->mesh();
-    if (!mesh)
+    if (!mesh) {
+      if (dbg_log_this) {
+        printf("CULL %s: mesh is null\n", gameObject->name().c_str());
+        dbg_obj_remaining--;
+      }
       continue;
+    }
 
     // get the rotation matrix for the game object and then combine with the camera rotations
     GTEMath::MultiplyMatrix33(cameraRotationMatrix, gameObject->rotationMatrix(), &finalCameraMatrix);
-  
+
     // see if the entire game object will be visible based off its aabb centre
     psyqo::Vec3 centre = gameObject->mesh()->bsphere.centre + gameObject->pos();
     auto deltaCentre = TransformObjectToViewSpace(centre, cameraRotationMatrix, finalCameraMatrix);
-    if (!IsGameObjectVisible(deltaCentre, gameObject->mesh()->collisionBox, gameObject->mesh()->bsphere.radius))
+    if (!IsGameObjectVisible(deltaCentre, gameObject->mesh()->collisionBox, gameObject->mesh()->bsphere.radius)) {
+      if (dbg_log_this) {
+        printf("CULL %s: bsphere rejected; deltaCentre=(%d,%d,%d) r=%d bsphereCentre=(%d,%d,%d)\n",
+          gameObject->name().c_str(),
+          deltaCentre.x.value, deltaCentre.y.value, deltaCentre.z.value,
+          mesh->bsphere.radius,
+          mesh->bsphere.centre.x.value, mesh->bsphere.centre.y.value, mesh->bsphere.centre.z.value);
+        dbg_obj_remaining--;
+      }
       continue;
+    }
 
     // transform the game object into view space 
     renderedObjects++;
@@ -492,11 +509,15 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     }
 #endif
 
-    static int dbg_frame = 0;
-    if ((dbg_frame++ % 120) == 0) {
+    // print the first ~50 per-object renders so we see every GameObject
+    // in the iteration (otherwise the modulo always trips on the first
+    // object only).
+    static int dbg_remaining = 50;
+    if (dbg_remaining > 0) {
       printf("RENDER %s: faces=%d nclip=%d otz=%d clip=%d emit=%d firstOTZ=%d firstV0=(%d,%d)\n",
         gameObject->name().c_str(), dbg_tried, dbg_nclip, dbg_otz, dbg_clip, dbg_emit,
         dbg_first_otz, dbg_first_v0.x, dbg_first_v0.y);
+      dbg_remaining--;
     }
   }
 
