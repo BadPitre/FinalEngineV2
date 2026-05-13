@@ -37,7 +37,9 @@ void GameplayScene::start(StartReason reason) {
   m_fpsText = m_debugHUD.AddTextHUDElement(TextHUDElement("FPS", {.pos = {5, 15}, .size = {100, 100}}));
 
   m_camera = new Camera();
-  m_camera->SetFreeLook({.x = 0, .y = 0, .z = 0});
+  // Eye-height spawn: PSX +Y is screen-down, so a negative Y sits above
+  // the world's floor at Y=0. ~1.6 m matches a standing-human viewpoint.
+  m_camera->SetFreeLook({.x = 0, .y = -1.6_fp, .z = 0});
   Renderer::Instance().SetActiveCamera(m_camera);
 }
 
