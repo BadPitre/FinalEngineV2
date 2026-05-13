@@ -60,6 +60,7 @@
 				<file name="CUBE.MB" type="data" source="assets/cube.meshbin"/>
 				<file name="STREET.MB" type="data" source="assets/residential_street.meshbin"/>
 				<file name="SUZANNE.MB" type="data" source="assets/models/suzanne.mb"/>
+				<file name="ROOM.MB" type="data" source="assets/models/room.mb"/>
 			</dir>
 
 			<!-- textures -->
