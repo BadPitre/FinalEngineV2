@@ -40,14 +40,19 @@ struct ClipVert {
 };
 
 // Linear interp between two ClipVerts. t is in fp12 raw units (0..4096 = 0..1).
+// All math kept in int32 to avoid pulling in libgcc's __divdi3 / __muldi3
+// soft-helpers, which are not linked in this freestanding build.
 ClipVert lerpClipVert(const ClipVert &a, const ClipVert &b, int32_t t_raw) {
   ClipVert out;
-  out.viewPos.x.value = a.viewPos.x.value + (((int64_t)(b.viewPos.x.value - a.viewPos.x.value) * t_raw) >> 12);
-  out.viewPos.y.value = a.viewPos.y.value + (((int64_t)(b.viewPos.y.value - a.viewPos.y.value) * t_raw) >> 12);
-  out.viewPos.z.value = a.viewPos.z.value + (((int64_t)(b.viewPos.z.value - a.viewPos.z.value) * t_raw) >> 12);
-  out.color.r = a.color.r + (((int32_t)((int32_t)b.color.r - a.color.r) * t_raw) >> 12);
-  out.color.g = a.color.g + (((int32_t)((int32_t)b.color.g - a.color.g) * t_raw) >> 12);
-  out.color.b = a.color.b + (((int32_t)((int32_t)b.color.b - a.color.b) * t_raw) >> 12);
+  out.viewPos.x.value = a.viewPos.x.value + (((b.viewPos.x.value - a.viewPos.x.value) * t_raw) >> 12);
+  out.viewPos.y.value = a.viewPos.y.value + (((b.viewPos.y.value - a.viewPos.y.value) * t_raw) >> 12);
+  out.viewPos.z.value = a.viewPos.z.value + (((b.viewPos.z.value - a.viewPos.z.value) * t_raw) >> 12);
+  int32_t dr = (int32_t)b.color.r - (int32_t)a.color.r;
+  int32_t dg = (int32_t)b.color.g - (int32_t)a.color.g;
+  int32_t db = (int32_t)b.color.b - (int32_t)a.color.b;
+  out.color.r = (uint8_t)(a.color.r + ((dr * t_raw) >> 12));
+  out.color.g = (uint8_t)(a.color.g + ((dg * t_raw) >> 12));
+  out.color.b = (uint8_t)(a.color.b + ((db * t_raw) >> 12));
   return out;
 }
 
@@ -70,7 +75,7 @@ int clipPolygonAgainstNearPlane(const ClipVert *in, int inCount, ClipVert *out) 
       int32_t denom = vb.viewPos.z.value - va.viewPos.z.value;
       if (denom == 0)
         continue;
-      int32_t t_raw = ((int64_t)(NEAR_PLANE_Z_RAW - va.viewPos.z.value) * 4096) / denom;
+      int32_t t_raw = ((NEAR_PLANE_Z_RAW - va.viewPos.z.value) * 4096) / denom;
       out[outCount++] = lerpClipVert(va, vb, t_raw);
     }
   }
@@ -85,8 +90,9 @@ psyqo::Vertex projectViewVert(const psyqo::Vec3 &v, int32_t projection_distance,
   psyqo::Vertex out{0};
   int32_t z = v.z.value;
   if (z < 1) z = 1; // already clipped to >= NEAR_PLANE_Z_RAW so this is paranoia
-  int32_t sx = (int32_t)(((int64_t)v.x.value * projection_distance) / z) + ofx;
-  int32_t sy = (int32_t)(((int64_t)v.y.value * projection_distance) / z) + ofy;
+  // 32-bit math: max viewPos value (~30000) * 120 ~ 3.6M, fits int32.
+  int32_t sx = (v.x.value * projection_distance) / z + ofx;
+  int32_t sy = (v.y.value * projection_distance) / z + ofy;
   if (sx < -32768) sx = -32768;
   if (sx > 32767) sx = 32767;
   if (sy < -32768) sy = -32768;
