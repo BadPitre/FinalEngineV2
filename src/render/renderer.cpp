@@ -304,7 +304,11 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     }
 
     auto renderVerts = mesh->hasSkeleton ? mesh->verticesOnBonePos : mesh->vertices;
+    int dbg_tried = 0, dbg_nclip = 0, dbg_otz = 0, dbg_clip = 0, dbg_emit = 0;
+    int32_t dbg_first_otz = -1;
+    psyqo::Vertex dbg_first_v0 = {0};
     for (int32_t i = 0; i < mesh->facesCount; i++) {
+      dbg_tried++;
       auto isQuad = mesh->vertexIndices[i].i2 != -1;
 
       // load the first 3 verts into the GTE. remember it can only handle 3 at a time
@@ -319,8 +323,10 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       psyqo::GTE::Kernels::nclip();
 
       // read the result of this and skip rendering if its backfaced
-      if (psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0>() == 0)
+      if (psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0>() == 0) {
+        dbg_nclip++;
         continue;
+      }
 
       // store these verts so we can read the last one in
       psyqo::GTE::read<psyqo::GTE::Register::SXY0>(&projected[0].packed);
@@ -339,9 +345,12 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       }
     
       zIndex = psyqo::GTE::readRaw<psyqo::GTE::Register::OTZ>();
+      if (dbg_first_otz < 0) dbg_first_otz = zIndex;
       // make sure we dont go out of bounds
-      if (zIndex == 0 || (m_isSimpleFogEnabled && zIndex >= FULL_FOG_DISTANCE) || zIndex >= ORDERING_TABLE_SIZE)
+      if (zIndex == 0 || (m_isSimpleFogEnabled && zIndex >= FULL_FOG_DISTANCE) || zIndex >= ORDERING_TABLE_SIZE) {
+        dbg_otz++;
         continue;
+      }
 
       // get the three remaining verts from the GTE
       if (isQuad) {
@@ -353,9 +362,13 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
         psyqo::GTE::read<psyqo::GTE::Register::SXY2>(&projected[2].packed);        
       }
 
+      if (dbg_emit == 0) dbg_first_v0 = projected[0];
       // if its out of the screen space we can clip too
-      if ((isQuad && quad_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2], &projected[3])) || !isQuad && tri_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2]))
+      if ((isQuad && quad_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2], &projected[3])) || !isQuad && tri_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2])) {
+        dbg_clip++;
         continue;
+      }
+      dbg_emit++;
 
       auto applyUV = [&](auto& uvDest, int index) {
         auto uv = mesh->uvs[index];
@@ -479,6 +492,12 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     }
 #endif
 
+    static int dbg_frame = 0;
+    if ((dbg_frame++ % 120) == 0) {
+      printf("RENDER %s: faces=%d nclip=%d otz=%d clip=%d emit=%d firstOTZ=%d firstV0=(%d,%d)\n",
+        gameObject->name().c_str(), dbg_tried, dbg_nclip, dbg_otz, dbg_clip, dbg_emit,
+        dbg_first_otz, dbg_first_v0.x, dbg_first_v0.y);
+    }
   }
 
   PerfMonitor::SetRenderedGameObjects(renderedObjects, gameObjects.size());
