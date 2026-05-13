@@ -74,7 +74,10 @@ void GameplayScene::frame() {
   // spin every Suzanne in place around its Y axis (other ENVIRONMENT
   // objects, like the room geometry, stay still)
   for (auto *obj : GameObjectManager::GetGameObjectsWithTag(GameObjectTag::ENVIRONMENT)) {
-    if (__builtin_strncmp(obj->name().c_str(), "SUZANNE", 7) != 0)
+    const auto &name = obj->name();
+    if (name.size() < 7 ||
+        name[0] != 'S' || name[1] != 'U' || name[2] != 'Z' ||
+        name[3] != 'A' || name[4] != 'N' || name[5] != 'N' || name[6] != 'E')
       continue;
     auto rot = obj->rotation();
     rot.y += c_spinSpeed;
