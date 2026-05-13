@@ -66,6 +66,7 @@
 			<!-- textures -->
 			<dir name="TEXTURES">
 				<file name="STREET.TIM" type="data" source="assets/residential_street.tim"/>
+				<file name="ROOM.TIM" type="data" source="assets/textures/room.tim"/>
 			</dir>
 
 			<!-- sounds -->
