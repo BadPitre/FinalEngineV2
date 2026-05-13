@@ -27,6 +27,77 @@
 #include "psyqo/vector.hh"
 
 Renderer *Renderer::m_instance = nullptr;
+
+namespace {
+// View-space Z below which a vertex is considered behind the near plane.
+// Smaller values let the camera get closer to walls before clipping kicks
+// in, but pushing it too low risks /0-ish artefacts in the GTE.
+constexpr int32_t NEAR_PLANE_Z_RAW = 200; // ~0.05 fp12
+
+struct ClipVert {
+  psyqo::Vec3 viewPos;
+  psyqo::Color color;
+};
+
+// Linear interp between two ClipVerts. t is in fp12 raw units (0..4096 = 0..1).
+ClipVert lerpClipVert(const ClipVert &a, const ClipVert &b, int32_t t_raw) {
+  ClipVert out;
+  out.viewPos.x.value = a.viewPos.x.value + (((int64_t)(b.viewPos.x.value - a.viewPos.x.value) * t_raw) >> 12);
+  out.viewPos.y.value = a.viewPos.y.value + (((int64_t)(b.viewPos.y.value - a.viewPos.y.value) * t_raw) >> 12);
+  out.viewPos.z.value = a.viewPos.z.value + (((int64_t)(b.viewPos.z.value - a.viewPos.z.value) * t_raw) >> 12);
+  out.color.r = a.color.r + (((int32_t)((int32_t)b.color.r - a.color.r) * t_raw) >> 12);
+  out.color.g = a.color.g + (((int32_t)((int32_t)b.color.g - a.color.g) * t_raw) >> 12);
+  out.color.b = a.color.b + (((int32_t)((int32_t)b.color.b - a.color.b) * t_raw) >> 12);
+  return out;
+}
+
+// Sutherland-Hodgman against the single near plane Z = NEAR_PLANE_Z_RAW.
+// Input: convex polygon with `inCount` vertices (3 or 4).
+// Output: clipped polygon with up to inCount+1 vertices (5 max for a quad).
+// Returns the new vertex count.
+int clipPolygonAgainstNearPlane(const ClipVert *in, int inCount, ClipVert *out) {
+  int outCount = 0;
+  for (int i = 0; i < inCount; i++) {
+    const ClipVert &va = in[i];
+    const ClipVert &vb = in[(i + 1) % inCount];
+    bool a_in = va.viewPos.z.value >= NEAR_PLANE_Z_RAW;
+    bool b_in = vb.viewPos.z.value >= NEAR_PLANE_Z_RAW;
+
+    if (a_in)
+      out[outCount++] = va;
+
+    if (a_in != b_in) {
+      int32_t denom = vb.viewPos.z.value - va.viewPos.z.value;
+      if (denom == 0)
+        continue;
+      int32_t t_raw = ((int64_t)(NEAR_PLANE_Z_RAW - va.viewPos.z.value) * 4096) / denom;
+      out[outCount++] = lerpClipVert(va, vb, t_raw);
+    }
+  }
+  return outCount;
+}
+
+// Project a single view-space vertex to screen coords with manual
+// perspective division. Cheaper than re-loading the GTE rotation matrix
+// just for these post-clip triangles, and it avoids clobbering the GTE
+// state set up for the rest of the per-face loop.
+psyqo::Vertex projectViewVert(const psyqo::Vec3 &v, int32_t projection_distance, int32_t ofx, int32_t ofy) {
+  psyqo::Vertex out{0};
+  int32_t z = v.z.value;
+  if (z < 1) z = 1; // already clipped to >= NEAR_PLANE_Z_RAW so this is paranoia
+  int32_t sx = (int32_t)(((int64_t)v.x.value * projection_distance) / z) + ofx;
+  int32_t sy = (int32_t)(((int64_t)v.y.value * projection_distance) / z) + ofy;
+  if (sx < -32768) sx = -32768;
+  if (sx > 32767) sx = 32767;
+  if (sy < -32768) sy = -32768;
+  if (sy > 32767) sy = 32767;
+  out.x = (int16_t)sx;
+  out.y = (int16_t)sy;
+  return out;
+}
+} // namespace
+
+using namespace psyqo::fixed_point_literals;
 psyqo::Font<> Renderer::m_systemFont;
 static constexpr psyqo::Rect SCREEN_SPACE = {.pos = {0, 0}, .size = {320, 240}};
 static constexpr psyqo::Matrix33 identityMatrix = {
@@ -345,19 +416,83 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       if (zIndex == 0 || (m_isSimpleFogEnabled && zIndex >= FULL_FOG_DISTANCE) || zIndex >= ORDERING_TABLE_SIZE)
         continue;
 
-      // reject faces that straddle the near plane. The PS1 GTE has no
-      // real near-plane clipping: when a vertex's view-space Z is at or
-      // behind the camera the rtpt result for its X/Y saturates to
-      // +-32767, and the face draws as a giant garbage primitive. SZ
-      // values come back as 0 in that case, so any 0 in the FIFO means
-      // the face should be dropped entirely (caller can subdivide the
-      // mesh to smooth this out near walls).
+      // Detect whether the face straddles the near plane. The PS1 GTE
+      // has no real clipper, so a quad with one vertex behind the camera
+      // saturates that vert's screen X/Y to +/-32767 and draws garbage.
+      // SZ comes back as 0 in that case, so any 0 in the FIFO triggers
+      // the slow path: re-transform the original mesh verts to view
+      // space, run Sutherland-Hodgman against the near plane, and emit
+      // the clipped triangles by hand.
       uint32_t sz0 = psyqo::GTE::readRaw<psyqo::GTE::Register::SZ0>();
       uint32_t sz1 = psyqo::GTE::readRaw<psyqo::GTE::Register::SZ1>();
       uint32_t sz2 = psyqo::GTE::readRaw<psyqo::GTE::Register::SZ2>();
       uint32_t sz3 = isQuad ? psyqo::GTE::readRaw<psyqo::GTE::Register::SZ3>() : 1;
-      if (sz0 == 0 || sz1 == 0 || sz2 == 0 || sz3 == 0)
-        continue;
+      bool needsNearClip = (sz0 == 0 || sz1 == 0 || sz2 == 0 || sz3 == 0);
+      if (needsNearClip) {
+        // Per-vertex view-space transform. Slow but only used when needed.
+        const int faceN = isQuad ? 4 : 3;
+        int idx[4];
+        if (isQuad) {
+          idx[0] = mesh->vertexIndices[i].i1;
+          idx[1] = mesh->vertexIndices[i].i2;
+          idx[2] = mesh->vertexIndices[i].i3;
+          idx[3] = mesh->vertexIndices[i].i4;
+        } else {
+          // Match the triangle vert order used by the fast path: (i1, i3, i4)
+          idx[0] = mesh->vertexIndices[i].i1;
+          idx[1] = mesh->vertexIndices[i].i3;
+          idx[2] = mesh->vertexIndices[i].i4;
+        }
+
+        ClipVert cv[4];
+        bool allBehind = true;
+        for (int v = 0; v < faceN; v++) {
+          psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::V0>(renderVerts[idx[v]]);
+          psyqo::GTE::Kernels::rt();
+          cv[v].viewPos = psyqo::GTE::readSafe<psyqo::GTE::PseudoRegister::SV>();
+          cv[v].color.r = mesh->vertexColours[idx[v]].r;
+          cv[v].color.g = mesh->vertexColours[idx[v]].g;
+          cv[v].color.b = mesh->vertexColours[idx[v]].b;
+          if (cv[v].viewPos.z.value >= NEAR_PLANE_Z_RAW) allBehind = false;
+        }
+        if (allBehind) continue;
+
+        ClipVert clipped[5];
+        int clipN = clipPolygonAgainstNearPlane(cv, faceN, clipped);
+        if (clipN < 3) continue;
+
+        // Fan-triangulate the clipped polygon and emit each triangle.
+        // We project ourselves (manual perspective) to avoid stomping
+        // the GTE Rotation/Translation that the fast path expects.
+        for (int t = 1; t < clipN - 1; t++) {
+          const ClipVert &v0 = clipped[0];
+          const ClipVert &v1 = clipped[t];
+          const ClipVert &v2 = clipped[t + 1];
+          int32_t avgZ = (v0.viewPos.z.value + v1.viewPos.z.value + v2.viewPos.z.value) / 3;
+          uint32_t clipOTZ = (uint32_t)((avgZ * (ORDERING_TABLE_SIZE / 40)) >> 12);
+          if (clipOTZ == 0 || clipOTZ >= ORDERING_TABLE_SIZE) continue;
+          if (m_isSimpleFogEnabled && clipOTZ >= FULL_FOG_DISTANCE) continue;
+
+          psyqo::Vertex p0 = projectViewVert(v0.viewPos, PROJECTION_DISTANCE, 160, 120);
+          psyqo::Vertex p1 = projectViewVert(v1.viewPos, PROJECTION_DISTANCE, 160, 120);
+          psyqo::Vertex p2 = projectViewVert(v2.viewPos, PROJECTION_DISTANCE, 160, 120);
+          if (tri_clip(&SCREEN_SPACE, &p0, &p1, &p2)) continue;
+
+          // Texture handling for clipped faces is not implemented yet -
+          // the UVs of the post-clip intersection vertices would need
+          // interpolation as well. Fall back to untextured Gouraud.
+          auto &tri = allocator.allocateFragment<psyqo::Prim::GouraudTriangle>();
+          tri.primitive.pointA = p0;
+          tri.primitive.pointB = p1;
+          tri.primitive.pointC = p2;
+          tri.primitive.setColorA(v0.color);
+          tri.primitive.setColorB(v1.color);
+          tri.primitive.setColorC(v2.color);
+          tri.primitive.setOpaque();
+          ot.insert(tri, clipOTZ);
+        }
+        continue; // done with this face
+      }
 
       // get the three remaining verts from the GTE
       if (isQuad) {
