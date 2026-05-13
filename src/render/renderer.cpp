@@ -82,25 +82,6 @@ int clipPolygonAgainstNearPlane(const ClipVert *in, int inCount, ClipVert *out) 
   return outCount;
 }
 
-// Project a single view-space vertex to screen coords with manual
-// perspective division. Cheaper than re-loading the GTE rotation matrix
-// just for these post-clip triangles, and it avoids clobbering the GTE
-// state set up for the rest of the per-face loop.
-psyqo::Vertex projectViewVert(const psyqo::Vec3 &v, int32_t projection_distance, int32_t ofx, int32_t ofy) {
-  psyqo::Vertex out{0};
-  int32_t z = v.z.value;
-  if (z < 1) z = 1; // already clipped to >= NEAR_PLANE_Z_RAW so this is paranoia
-  // 32-bit math: max viewPos value (~30000) * 120 ~ 3.6M, fits int32.
-  int32_t sx = (v.x.value * projection_distance) / z + ofx;
-  int32_t sy = (v.y.value * projection_distance) / z + ofy;
-  if (sx < -32768) sx = -32768;
-  if (sx > 32767) sx = 32767;
-  if (sy < -32768) sy = -32768;
-  if (sy > 32767) sy = 32767;
-  out.x = (int16_t)sx;
-  out.y = (int16_t)sy;
-  return out;
-}
 } // namespace
 
 using namespace psyqo::fixed_point_literals;
@@ -334,9 +315,9 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     if (!IsGameObjectVisible(deltaCentre, gameObject->mesh()->collisionBox, gameObject->mesh()->bsphere.radius))
       continue;
 
-    // transform the game object into view space 
+    // transform the game object into view space
     renderedObjects++;
-    TransformObjectToViewSpace(gameObject->pos(), cameraRotationMatrix, finalCameraMatrix);
+    auto objViewPos = TransformObjectToViewSpace(gameObject->pos(), cameraRotationMatrix, finalCameraMatrix);
       
     // if we've got a skeleton on this mesh
     if (mesh->hasSkeleton) {
@@ -467,21 +448,40 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
         int clipN = clipPolygonAgainstNearPlane(cv, faceN, clipped);
         if (clipN < 3) continue;
 
-        // Fan-triangulate the clipped polygon and emit each triangle.
-        // We project ourselves (manual perspective) to avoid stomping
-        // the GTE Rotation/Translation that the fast path expects.
+        // Project the clipped fan via the GTE so screen coords match
+        // exactly what the fast path produces (otherwise the boundary
+        // between clipped and unclipped faces is visibly seamed). To
+        // do that we temporarily swap the Rotation/Translation
+        // registers for an identity setup, project with rtpt, then
+        // restore them before continuing the loop.
+        static constexpr psyqo::Matrix33 c_identityRot = {{
+            {.x = 1.0_fp, .y = 0.0_fp, .z = 0.0_fp},
+            {.x = 0.0_fp, .y = 1.0_fp, .z = 0.0_fp},
+            {.x = 0.0_fp, .y = 0.0_fp, .z = 1.0_fp},
+        }};
+        psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::Rotation>(c_identityRot);
+        psyqo::GTE::clear<psyqo::GTE::Register::TRX, psyqo::GTE::Unsafe>();
+        psyqo::GTE::clear<psyqo::GTE::Register::TRY, psyqo::GTE::Unsafe>();
+        psyqo::GTE::clear<psyqo::GTE::Register::TRZ, psyqo::GTE::Unsafe>();
+
         for (int t = 1; t < clipN - 1; t++) {
           const ClipVert &v0 = clipped[0];
           const ClipVert &v1 = clipped[t];
           const ClipVert &v2 = clipped[t + 1];
-          int32_t avgZ = (v0.viewPos.z.value + v1.viewPos.z.value + v2.viewPos.z.value) / 3;
-          uint32_t clipOTZ = (uint32_t)((avgZ * (ORDERING_TABLE_SIZE / 40)) >> 12);
+
+          psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::V0>(v0.viewPos);
+          psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::V1>(v1.viewPos);
+          psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::V2>(v2.viewPos);
+          psyqo::GTE::Kernels::rtpt();
+          psyqo::GTE::Kernels::avsz3();
+          uint32_t clipOTZ = psyqo::GTE::readRaw<psyqo::GTE::Register::OTZ>();
           if (clipOTZ == 0 || clipOTZ >= ORDERING_TABLE_SIZE) continue;
           if (m_isSimpleFogEnabled && clipOTZ >= FULL_FOG_DISTANCE) continue;
 
-          psyqo::Vertex p0 = projectViewVert(v0.viewPos, PROJECTION_DISTANCE, 160, 120);
-          psyqo::Vertex p1 = projectViewVert(v1.viewPos, PROJECTION_DISTANCE, 160, 120);
-          psyqo::Vertex p2 = projectViewVert(v2.viewPos, PROJECTION_DISTANCE, 160, 120);
+          psyqo::Vertex p0, p1, p2;
+          psyqo::GTE::read<psyqo::GTE::Register::SXY0>(&p0.packed);
+          psyqo::GTE::read<psyqo::GTE::Register::SXY1>(&p1.packed);
+          psyqo::GTE::read<psyqo::GTE::Register::SXY2>(&p2.packed);
           if (tri_clip(&SCREEN_SPACE, &p0, &p1, &p2)) continue;
 
           // Texture handling for clipped faces is not implemented yet -
@@ -497,6 +497,12 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
           tri.primitive.setOpaque();
           ot.insert(tri, clipOTZ);
         }
+
+        // Restore the GTE so the next face's fast-path rtpt sees the
+        // correct camera-times-object rotation and the translation
+        // that was set up before the per-face loop.
+        psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::Rotation>(finalCameraMatrix);
+        psyqo::GTE::writeSafe<psyqo::GTE::PseudoRegister::Translation>(objViewPos);
         continue; // done with this face
       }
 
