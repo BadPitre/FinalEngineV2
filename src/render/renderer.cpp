@@ -242,19 +242,11 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
 
   // now for each object...
   int renderedObjects = 0;
-  static int dbg_obj_remaining = 30;
   for (const auto &gameObject : gameObjects) {
-    bool dbg_log_this = (dbg_obj_remaining > 0);
-
     // we dont need to get mesh data for every single vert since it wont change, so lets only do that once
     const auto mesh = gameObject->mesh();
-    if (!mesh) {
-      if (dbg_log_this) {
-        printf("CULL %s: mesh is null\n", gameObject->name().c_str());
-        dbg_obj_remaining--;
-      }
+    if (!mesh)
       continue;
-    }
 
     // get the rotation matrix for the game object and then combine with the camera rotations
     GTEMath::MultiplyMatrix33(cameraRotationMatrix, gameObject->rotationMatrix(), &finalCameraMatrix);
@@ -262,17 +254,8 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     // see if the entire game object will be visible based off its aabb centre
     psyqo::Vec3 centre = gameObject->mesh()->bsphere.centre + gameObject->pos();
     auto deltaCentre = TransformObjectToViewSpace(centre, cameraRotationMatrix, finalCameraMatrix);
-    if (!IsGameObjectVisible(deltaCentre, gameObject->mesh()->collisionBox, gameObject->mesh()->bsphere.radius)) {
-      if (dbg_log_this) {
-        printf("CULL %s: bsphere rejected; deltaCentre=(%d,%d,%d) r=%d bsphereCentre=(%d,%d,%d)\n",
-          gameObject->name().c_str(),
-          deltaCentre.x.value, deltaCentre.y.value, deltaCentre.z.value,
-          mesh->bsphere.radius,
-          mesh->bsphere.centre.x.value, mesh->bsphere.centre.y.value, mesh->bsphere.centre.z.value);
-        dbg_obj_remaining--;
-      }
+    if (!IsGameObjectVisible(deltaCentre, gameObject->mesh()->collisionBox, gameObject->mesh()->bsphere.radius))
       continue;
-    }
 
     // transform the game object into view space 
     renderedObjects++;
@@ -323,11 +306,7 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
     }
 
     auto renderVerts = mesh->hasSkeleton ? mesh->verticesOnBonePos : mesh->vertices;
-    int dbg_tried = 0, dbg_nclip = 0, dbg_otz = 0, dbg_clip = 0, dbg_emit = 0;
-    int32_t dbg_first_otz = -1;
-    psyqo::Vertex dbg_first_v0 = {0};
     for (int32_t i = 0; i < mesh->facesCount; i++) {
-      dbg_tried++;
       auto isQuad = mesh->vertexIndices[i].i2 != -1;
 
       // load the first 3 verts into the GTE. remember it can only handle 3 at a time
@@ -342,10 +321,8 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       psyqo::GTE::Kernels::nclip();
 
       // read the result of this and skip rendering if its backfaced
-      if (psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0>() == 0) {
-        dbg_nclip++;
+      if (psyqo::GTE::readRaw<psyqo::GTE::Register::MAC0>() == 0)
         continue;
-      }
 
       // store these verts so we can read the last one in
       psyqo::GTE::read<psyqo::GTE::Register::SXY0>(&projected[0].packed);
@@ -364,12 +341,23 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       }
     
       zIndex = psyqo::GTE::readRaw<psyqo::GTE::Register::OTZ>();
-      if (dbg_first_otz < 0) dbg_first_otz = zIndex;
       // make sure we dont go out of bounds
-      if (zIndex == 0 || (m_isSimpleFogEnabled && zIndex >= FULL_FOG_DISTANCE) || zIndex >= ORDERING_TABLE_SIZE) {
-        dbg_otz++;
+      if (zIndex == 0 || (m_isSimpleFogEnabled && zIndex >= FULL_FOG_DISTANCE) || zIndex >= ORDERING_TABLE_SIZE)
         continue;
-      }
+
+      // reject faces that straddle the near plane. The PS1 GTE has no
+      // real near-plane clipping: when a vertex's view-space Z is at or
+      // behind the camera the rtpt result for its X/Y saturates to
+      // +-32767, and the face draws as a giant garbage primitive. SZ
+      // values come back as 0 in that case, so any 0 in the FIFO means
+      // the face should be dropped entirely (caller can subdivide the
+      // mesh to smooth this out near walls).
+      uint32_t sz0 = psyqo::GTE::readRaw<psyqo::GTE::Register::SZ0>();
+      uint32_t sz1 = psyqo::GTE::readRaw<psyqo::GTE::Register::SZ1>();
+      uint32_t sz2 = psyqo::GTE::readRaw<psyqo::GTE::Register::SZ2>();
+      uint32_t sz3 = isQuad ? psyqo::GTE::readRaw<psyqo::GTE::Register::SZ3>() : 1;
+      if (sz0 == 0 || sz1 == 0 || sz2 == 0 || sz3 == 0)
+        continue;
 
       // get the three remaining verts from the GTE
       if (isQuad) {
@@ -381,13 +369,9 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
         psyqo::GTE::read<psyqo::GTE::Register::SXY2>(&projected[2].packed);        
       }
 
-      if (dbg_emit == 0) dbg_first_v0 = projected[0];
       // if its out of the screen space we can clip too
-      if ((isQuad && quad_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2], &projected[3])) || !isQuad && tri_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2])) {
-        dbg_clip++;
+      if ((isQuad && quad_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2], &projected[3])) || !isQuad && tri_clip(&SCREEN_SPACE, &projected[0], &projected[1], &projected[2]))
         continue;
-      }
-      dbg_emit++;
 
       auto applyUV = [&](auto& uvDest, int index) {
         auto uv = mesh->uvs[index];
@@ -510,17 +494,6 @@ void Renderer::RenderGameObjects(uint32_t deltaTime, const psyqo::Matrix33 &came
       }
     }
 #endif
-
-    // print the first ~50 per-object renders so we see every GameObject
-    // in the iteration (otherwise the modulo always trips on the first
-    // object only).
-    static int dbg_remaining = 50;
-    if (dbg_remaining > 0) {
-      printf("RENDER %s: faces=%d nclip=%d otz=%d clip=%d emit=%d firstOTZ=%d firstV0=(%d,%d)\n",
-        gameObject->name().c_str(), dbg_tried, dbg_nclip, dbg_otz, dbg_clip, dbg_emit,
-        dbg_first_otz, dbg_first_v0.x, dbg_first_v0.y);
-      dbg_remaining--;
-    }
   }
 
   PerfMonitor::SetRenderedGameObjects(renderedObjects, gameObjects.size());
